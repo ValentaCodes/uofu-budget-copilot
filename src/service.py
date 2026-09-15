@@ -4,7 +4,7 @@
 File: service.py
 Author: Cornelius Davis
 Date: 2026-09-13
-Description: 
+Description: MVP Service layer. Contains business logic for creating and managing spend requests. This layer interacts with the database and enforces business rules.
 """
 import uuid
 import os
@@ -49,7 +49,7 @@ def get_conn():
 
 def create_request(
     department_id: str, # The ID of the department making the request.
-    requester_id: str, # The ID of the user making the request.
+    requester_utaid: str, # The ID of the user making the request.
     category: str, # The category of the request.
     amount_cents: int, # The amount requested in cents.
     grant_id: int | None = None, # Optional grant ID associated with the request.
@@ -67,5 +67,43 @@ def create_request(
     """
     request_id = str(uuid.uuid4())
     expires_at = datetime.now(UTC) + timedelta(days=14)
-
+    
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO spend_requests (
+                id, department_id, grant_id, requester_utaid,
+                category, justification, amount_cents, state, desired_date, expires_at
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                request_id,
+                department_id,
+                grant_id,
+                requester_utaid,
+                category,
+                justification,
+                amount_cents,
+                RequestState.SUBMITTED.value,
+                desired_date,
+                expires_at,
+            ),
+        )
     return request_id
+
+# Move to dedicated policy engine later. For now, just enforce departmental constraints.
+    def _check_fiscal_constraints(cur, request_row):
+        """Internal helper that looks at `spend_requests` row plus department config and decides whether it`s safe to approve.
+        """
+        # Load department config from db.
+        dept_id = request_row["department_id"]
+        amount = request_row["amount_cents"]
+        cur.execute("SELECT annual_cap_cents, reserve_requirement_cents FROM departments WHERE id = %s", (dept_id,))
+        dept = cur.fetchone()
+        if not dept:
+            raise PolicyViolation(f"Department {dept_id} not found.")
+        
+        # Check annual cap.
+        cur.execute(
+            "SELECT COALESCE(SUM(amount_cents), 0) AS used FROM spend_requests WHERE department_id = %s AND state IN (APPROVED, PAID) AND date_part('year', now()))",(dept_id,)
+        )

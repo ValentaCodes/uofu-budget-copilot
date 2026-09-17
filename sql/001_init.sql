@@ -1,17 +1,10 @@
+DROP TABLE IF EXISTS payments CASCADE;
+DROP TABLE IF EXISTS spend_requests CASCADE;
+DROP TABLE IF EXISTS grants CASCADE;
+DROP TABLE IF EXISTS departments CASCADE;
 
-CREATE TABLE departments (
-    id SERIAL PRIMARY KEY,
-    code TEXT UNIQUE NOT NULL,          -- e.g., 'CS'
-    name TEXT NOT NULL,
-    annual_cap_cents BIGINT NOT NULL,   -- department cap (fiscal year)
-    reserve_requirement_cents BIGINT NOT NULL
-);
+DROP TYPE IF EXISTS request_state CASCADE;
 
-CREATE TABLE grants (
-    id SERIAL PRIMARY KEY,
-    code TEXT UNIQUE NOT NULL,          -- e.g., 'NSF-1234'
-    name TEXT NOT NULL
-);
 
 -- Enum for tracking the state of each spend request
 CREATE TYPE request_state AS ENUM (
@@ -24,6 +17,20 @@ CREATE TYPE request_state AS ENUM (
     'EXPIRED'
 );
 
+CREATE TABLE departments (
+    id SERIAL PRIMARY KEY,
+    code TEXT UNIQUE NOT NULL,          -- e.g., 'CS'
+    name TEXT NOT NULL,
+    annual_cap_cents BIGINT NOT NULL,   -- department cap (fiscal year)
+    reserve_requirement_cents BIGINT NOT NULL --
+);
+
+CREATE TABLE grants (
+    id SERIAL PRIMARY KEY,
+    code TEXT UNIQUE NOT NULL,          -- e.g., 'NSF-1234'
+    name TEXT NOT NULL
+);
+
 -- Core request entity, every time someone asks to spend money, a new row is created here. The state column tracks the lifecycle of the request.
 CREATE TABLE spend_requests (
     id UUID PRIMARY KEY,
@@ -32,10 +39,12 @@ CREATE TABLE spend_requests (
     requester_utaid TEXT NOT NULL,
     category TEXT NOT NULL,
     amount_cents BIGINT NOT NULL,
+    CONSTRAINT amount_cents_non_neg CHECK (amount_cents >= 0),
     justification TEXT,
     state request_state NOT NULL DEFAULT 'DRAFT',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    approved_on DATE,
     desired_date DATE,
     expires_at TIMESTAMPTZ,
     idempotency_key TEXT UNIQUE,             -- for external calls
